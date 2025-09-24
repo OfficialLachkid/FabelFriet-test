@@ -1,23 +1,32 @@
 /* ====== CONFIG ====== */
 const CHATBOT_CONFIG = {
-  webhookUrl: "https://YOUR-N8N-HOST/webhook/your-endpoint",
+  webhookUrl: "https://n8n1.vbservices.org/webhook/c5796ce9-6a17-4181-b39c-20108ed3f122/chat",
   title: "Support Assistant",
 
-  // RELATIEF T.O.V. index.html (niet chat.js)
-  // Probeer "./Assets/ChatImage.png" of "/Assets/ChatImage.png"
-  agentAvatar: "./Assets/chatboticon.png",
+  // Bubble iconen (t.o.v. index.html)
+  bubbleIconClosed: "./Assets/ChatImage.png",
+  bubbleIconOpen:   "./Assets/image.png",
 
-  // Optioneel: icoon voor de floating bubble (ipv inline SVG)
-  bubbleIcon: null, // voorbeeld: "./Assets/chatboticon.png"
+  // Avatar in de chat header
+  agentAvatar: "./Assets/ChatImage.png",
 
-  headers: { /* optioneel extra headers */ },
+  // Eventuele extra headers (bv. auth)
+  headers: {},
 
+  // Hoe de response te tonen in de widget:
+  // Pak primair 'output' (n8n AI Agent), fallback naar 'reply' of string.
   parseReply: (data) => {
     if (!data) return "Er ging iets mis. Probeer opnieuw.";
     if (typeof data === "string") return data;
-    return data.reply || JSON.stringify(data);
+    if (data.output) return data.output;            // <- jouw wens: alleen output
+    if (data.reply)  return data.reply;             // fallback wanneer je Set-node gebruikt
+    // extra defensief: veelgebruikte alternatieve keys
+    if (data.text)   return data.text;
+    if (data.message)return data.message;
+    try { return JSON.stringify(data); } catch { return String(data); }
   },
 
+  // Handige metadata meegeven (komt binnen in n8n)
   identity: { site: location.hostname, path: location.pathname },
 };
 /* ===================== */
@@ -32,35 +41,44 @@ const CHATBOT_CONFIG = {
   const elClose  = qs('#cbClose');
   const elAvatar = qs('#cbAvatar');
 
-  // ===== Bubble icon (optioneel) =====
-  if (CHATBOT_CONFIG.bubbleIcon) {
-    elToggle.classList.add('has-icon');
-    elToggle.style.backgroundImage = `url("${CHATBOT_CONFIG.bubbleIcon}")`;
+  const elIconClosed = qs('.cb-icon-closed', elToggle);
+  const elIconOpen   = qs('.cb-icon-open',   elToggle);
+
+  // --- helpers
+  const bust = (url)=> url ? url + ((url.includes('?')?'&':'?') + 'v=' + Date.now()) : url;
+
+  function preload(src, onerror){
+    if(!src) return;
+    const i = new Image();
+    i.onload = ()=>{};
+    i.onerror = ()=>{ if (onerror) onerror(src); };
+    i.src = bust(src);
   }
 
-  // ===== Avatar =====
+  function setBubbleIcons(closedSrc, openSrc){
+    if (closedSrc) elIconClosed.src = bust(closedSrc);
+    if (openSrc)   elIconOpen.src   = bust(openSrc);
+  }
+
   function setAvatar(src){
-    // cache-bust om hard refresh te forceren bij wijzigingen
-    const bust = (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
-    elAvatar.src = src + bust;
+    if (!src) { elAvatar.style.display='none'; return; }
+    elAvatar.src = bust(src);
     elAvatar.referrerPolicy = "no-referrer";
-  }
-
-  if (CHATBOT_CONFIG.agentAvatar) {
-    // eerst even zichtbaar houden; toon fallback i.p.v. verbergen
-    elAvatar.style.display = 'block';
     elAvatar.onerror = () => {
-      console.warn("[chat] Avatar laden faalde:", CHATBOT_CONFIG.agentAvatar);
-      elAvatar.src =
-        "data:image/svg+xml;utf8," +
+      elAvatar.src = "data:image/svg+xml;utf8," +
         encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="16" fill="#e5e7eb"/><text x="16" y="21" text-anchor="middle" font-size="14" fill="#6b7280">AI</text></svg>');
     };
-    setAvatar(CHATBOT_CONFIG.agentAvatar);
-  } else {
-    elAvatar.style.display = 'none';
   }
 
-  // ===== Session =====
+  // --- init visuals
+  setBubbleIcons(CHATBOT_CONFIG.bubbleIconClosed, CHATBOT_CONFIG.bubbleIconOpen);
+  // Preload zodat er geen “wit” frame is bij de eerste switch
+  preload(CHATBOT_CONFIG.bubbleIconClosed);
+  preload(CHATBOT_CONFIG.bubbleIconOpen);
+  setAvatar(CHATBOT_CONFIG.agentAvatar);
+  if (CHATBOT_CONFIG.title) qs('#cbTitle').textContent = CHATBOT_CONFIG.title;
+
+  // --- session
   const SESSION_KEY = 'cb_session_id';
   let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
@@ -68,57 +86,52 @@ const CHATBOT_CONFIG = {
     localStorage.setItem(SESSION_KEY, sessionId);
   }
 
-  // ===== Title =====
-  if (CHATBOT_CONFIG.title) qs('#cbTitle').textContent = CHATBOT_CONFIG.title;
-
-  // ===== UI helpers =====
-  function toggle(open){
+  // --- UI
+  function setOpen(open){
     elWin.classList[open ? 'add' : 'remove']('cb-open');
+    elToggle.classList[open ? 'add' : 'remove']('is-open');
+    elToggle.setAttribute('aria-expanded', String(open));
     if (open) setTimeout(()=> elInput.focus(), 50);
   }
-  elToggle.onclick = ()=> toggle(!elWin.classList.contains('cb-open'));
-  elClose.onclick  = ()=> toggle(false);
+
+  elToggle.addEventListener('click', ()=> setOpen(!elWin.classList.contains('cb-open')));
+  elClose.addEventListener('click', ()=> setOpen(false));
+  elClose.addEventListener('keydown', (e)=> { if (e.key==='Enter'||e.key===' ') setOpen(false); });
 
   function addMsg(role, text, asTyping=false){
     const m = document.createElement('div');
     m.className = `cb-msg ${role}`;
-    if (asTyping) {
-      m.innerHTML = `<span class="cb-typing"><span class="cb-dot"></span><span class="cb-dot"></span><span class="cb-dot"></span></span>`;
-    } else {
-      m.textContent = text;
-    }
+    m.innerHTML = asTyping
+      ? `<span class="cb-typing"><span class="cb-dot"></span><span class="cb-dot"></span><span class="cb-dot"></span></span>`
+      : String(text);
     elBody.appendChild(m);
     elBody.scrollTop = elBody.scrollHeight;
     return m;
   }
 
-  async function sendMessage(text){
-    addMsg('user', text);
-    const typing = addMsg('bot', '', true);
+ async function sendMessage(text){
+  addMsg('user', text);
+  const typing = addMsg('bot', '', true);
 
-    const payload = {
-      message: text,
-      sessionId,
-      metadata: CHATBOT_CONFIG.identity
-    };
+  const payload = {
+    chatInput: text,          // OK voor Chat Trigger
+    sessionId: sessionId,     // <-- i.p.v. chatId
+    metadata: CHATBOT_CONFIG.identity
+  };
 
-    try {
-      const res = await fetch(CHATBOT_CONFIG.webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...CHATBOT_CONFIG.headers
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(()=> ({}));
-      const reply = CHATBOT_CONFIG.parseReply(data);
-      typing.textContent = reply;
-    } catch (e) {
-      typing.textContent = "Sorry, er ging iets mis. Probeer het later opnieuw.";
-      console.error(e);
-    }
+  try {
+    const res = await fetch(CHATBOT_CONFIG.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...CHATBOT_CONFIG.headers },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(()=> ({}));
+    typing.textContent = CHATBOT_CONFIG.parseReply(data);
+  } catch (e) {
+    typing.textContent = "Sorry, er ging iets mis. Probeer het later opnieuw.";
+    console.error(e);
   }
+}
 
   elForm.addEventListener('submit', (e)=>{
     e.preventDefault();
