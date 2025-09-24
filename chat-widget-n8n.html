@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minimal Custom Chat Widget for n8n</title>
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+  <!-- Chat Bubble -->
+  <div class="cb-bubble" id="cbToggle" aria-label="Open chat" title="Chat">
+    <!-- Vervang door je eigen SVG/IMG -->
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M2 3h20v13H7l-5 5V3z"/>
+    </svg>
+  </div>
+
+  <!-- Chat Window -->
+  <div class="cb-window" id="cbWindow" role="dialog" aria-labelledby="cbTitle" aria-modal="true">
+    <div class="cb-header">
+      <div class="cb-avatar"><img id="cbAvatar" alt="Agent" /></div>
+      <div class="cb-title" id="cbTitle">Chat met ons</div>
+      <div class="cb-close" id="cbClose" aria-label="Sluiten">×</div>
+    </div>
+    <div class="cb-body" id="cbBody"></div>
+    <form class="cb-footer" id="cbForm">
+      <input id="cbInput" class="cb-input" placeholder="Typ je bericht..." autocomplete="off" />
+      <button class="cb-send" id="cbSend" type="submit">Verstuur</button>
+    </form>
+  </div>
+
+  <!-- Eigen script -->
+  <script src="chat.js"></script>
+</body>
+</html>
