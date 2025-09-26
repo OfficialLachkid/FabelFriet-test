@@ -30,7 +30,15 @@ const CHATBOT_CONFIG = {
     image: "./Assets/plastic_molecules1.png",
     mode: "center",       // "center" of "tile"
     text: "",             // bv. "© Dimensio"
-    opacity: 0.6          // JS overschrijft CSS default (.08)
+    opacity: 0.6
+  },
+
+  // Resize instellingen
+  resize: {
+    minW: 300, minH: 360,          // px
+    maxWvw: 90, maxHvh: 85,        // % van viewport
+    remember: true,                // maat onthouden in localStorage
+    storageKey: "cb_size"          // prefix voor opslag
   },
 };
 /* ===================== */
@@ -62,154 +70,74 @@ const CHATBOT_CONFIG = {
 
   /* ---------- Markdown renderer ---------- */
   function escapeHTML(s){ return s.replace(/[&<>"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
-
-  // Parse naar blokken (codeblokken, koppen, lijsten, paragrafen)
   function parseBlocks(md){
     const lines = String(md).replace(/\r\n?/g, '\n').split('\n');
     const blocks = [];
-    let buf = [];
-    let inCode = false;
-    let codeLang = "";
+    let buf = []; let inCode = false;
 
     const flushParagraph = () => {
       const text = buf.join('\n').trim();
-      buf = [];
-      if (!text) return;
+      buf = []; if (!text) return;
       blocks.push({ type:'p', text });
     };
 
     for(let i=0;i<lines.length;i++){
-      let line = lines[i];
+      const line = lines[i];
 
-      // codefence ```
       const fence = line.match(/^```(\w+)?\s*$/);
       if (fence){
-        if (!inCode){
-          flushParagraph();
-          inCode = true; codeLang = fence[1] || '';
-          blocks.push({ type:'code_open', lang: codeLang });
-        } else {
-          inCode = false; codeLang = '';
-          blocks.push({ type:'code_close' });
-        }
+        if (!inCode){ flushParagraph(); inCode = true; blocks.push({ type:'code_open', lang: fence[1]||'' }); }
+        else { inCode = false; blocks.push({ type:'code_close' }); }
         continue;
       }
-      if (inCode){
-        blocks.push({ type:'code_line', text: line });
-        continue;
-      }
+      if (inCode){ blocks.push({ type:'code_line', text: line }); continue; }
 
-      // heading #..######
       const h = line.match(/^(#{1,6})\s+(.*)$/);
-      if (h){
-        flushParagraph();
-        blocks.push({ type:'h', level: h[1].length, text: h[2] });
-        continue;
-      }
+      if (h){ flushParagraph(); blocks.push({ type:'h', level: h[1].length, text: h[2] }); continue; }
 
-      // unordered list item "- "
       const ul = line.match(/^\s*-\s+(.*)$/);
       if (ul){
         flushParagraph();
-        // verzamel aaneengesloten list-items
         const items = [ul[1]];
-        while (i+1<lines.length && /^\s*-\s+/.test(lines[i+1])){
-          items.push(lines[++i].replace(/^\s*-\s+/, ''));
-        }
-        blocks.push({ type:'ul', items });
-        continue;
+        while (i+1<lines.length && /^\s*-\s+/.test(lines[i+1])) items.push(lines[++i].replace(/^\s*-\s+/, ''));
+        blocks.push({ type:'ul', items }); continue;
       }
 
-      // ordered list item "1. "
       const ol = line.match(/^\s*\d+\.\s+(.*)$/);
       if (ol){
         flushParagraph();
         const items = [ol[1]];
-        while (i+1<lines.length && /^\s*\d+\.\s+/.test(lines[i+1])){
-          items.push(lines[++i].replace(/^\s*\d+\.\s+/, ''));
-        }
-        blocks.push({ type:'ol', items });
-        continue;
+        while (i+1<lines.length && /^\s*\d+\.\s+/.test(lines[i+1])) items.push(lines[++i].replace(/^\s*\d+\.\s+/, ''));
+        blocks.push({ type:'ol', items }); continue;
       }
 
-      // lege regel -> nieuwe paragraaf
-      if (/^\s*$/.test(line)){
-        flushParagraph();
-      } else {
-        buf.push(line);
-      }
+      if (/^\s*$/.test(line)) flushParagraph(); else buf.push(line);
     }
     flushParagraph();
     return blocks;
   }
-
-  // Inline markdown
   function renderInline(text){
     let s = escapeHTML(text);
-
-    // images ![alt](url)
-    s = s.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
-      (m,alt,url)=> `<img src="${url}" alt="${alt}" class="cb-img">`);
-
-    // links [txt](url)
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      (m,txt,url)=> `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>`);
-
-    // inline code `...`
-    s = s.replace(/`([^`]+)`/g, (m,code)=> `<code>${code}</code>`);
-
-    // bold **...**
-    s = s.replace(/\*\*([^*]+)\*\*/g, (m,txt)=> `<strong>${txt}</strong>`);
-
-    // italic *...*  (na bold)
-    s = s.replace(/(^|[^\*])\*([^*\n]+)\*(?!\*)/g, (m,prefix,txt)=> `${prefix}<em>${txt}</em>`);
-
-    // bare image urls
-    s = s.replace(/(https?:\/\/[^\s<]+?\.(?:png|jpe?g|gif|webp|svg))(?![^<]*>)/gi,
-      (url)=> `<img src="${url}" alt="" class="cb-img">`);
-
-    // bare links
-    s = s.replace(/(https?:\/\/[^\s<]+)(?![^<]*>)/g,
-      (url)=> `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
-
+    s = s.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,(m,alt,url)=> `<img src="${url}" alt="${alt}" class="cb-img">`);
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,txt,url)=> `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>`);
+    s = s.replace(/`([^`]+)`/g,(m,code)=> `<code>${code}</code>`);
+    s = s.replace(/\*\*([^*]+)\*\*/g,(m,txt)=> `<strong>${txt}</strong>`);
+    s = s.replace(/(^|[^\*])\*([^*\n]+)\*(?!\*)/g,(m,prefix,txt)=> `${prefix}<em>${txt}</em>`);
+    s = s.replace(/(https?:\/\/[^\s<]+?\.(?:png|jpe?g|gif|webp|svg))(?![^<]*>)/gi,(url)=> `<img src="${url}" alt="" class="cb-img">`);
+    s = s.replace(/(https?:\/\/[^\s<]+)(?![^<]*>)/g,(url)=> `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
     return s;
   }
-
   function renderMarkdown(md){
     const blocks = parseBlocks(md);
-    const out = [];
-    let inCode = false;
-    let codeBuf = [];
-
+    const out = []; let inCode = false; let codeBuf = [];
     for (const b of blocks){
-      if (b.type === 'code_open'){ inCode = true; codeBuf = []; continue; }
-      if (b.type === 'code_close'){
-        const codeText = escapeHTML(codeBuf.join('\n'));
-        out.push(`<pre><code>${codeText}</code></pre>`);
-        inCode = false; codeBuf = [];
-        continue;
-      }
-      if (b.type === 'code_line'){ codeBuf.push(b.text); continue; }
-
-      if (b.type === 'h'){
-        const lvl = Math.min(3, Math.max(1, b.level)); // h1..h3
-        out.push(`<h${lvl}>${renderInline(b.text)}</h${lvl}>`);
-        continue;
-      }
-      if (b.type === 'ul'){
-        const items = b.items.map(t=> `<li>${renderInline(t)}</li>`).join('');
-        out.push(`<ul>${items}</ul>`);
-        continue;
-      }
-      if (b.type === 'ol'){
-        const items = b.items.map(t=> `<li>${renderInline(t)}</li>`).join('');
-        out.push(`<ol>${items}</ol>`);
-        continue;
-      }
-      if (b.type === 'p'){
-        out.push(`<p>${renderInline(b.text)}</p>`);
-        continue;
-      }
+      if (b.type==='code_open'){ inCode=true; codeBuf=[]; continue; }
+      if (b.type==='code_close'){ const codeText = escapeHTML(codeBuf.join('\n')); out.push(`<pre><code>${codeText}</code></pre>`); inCode=false; codeBuf=[]; continue; }
+      if (b.type==='code_line'){ codeBuf.push(b.text); continue; }
+      if (b.type==='h'){ const lvl = Math.min(3, Math.max(1, b.level)); out.push(`<h${lvl}>${renderInline(b.text)}</h${lvl}>`); continue; }
+      if (b.type==='ul'){ out.push(`<ul>${b.items.map(t=> `<li>${renderInline(t)}</li>`).join('')}</ul>`); continue; }
+      if (b.type==='ol'){ out.push(`<ol>${b.items.map(t=> `<li>${renderInline(t)}</li>`).join('')}</ol>`); continue; }
+      if (b.type==='p'){ out.push(`<p>${renderInline(b.text)}</p>`); continue; }
     }
     return out.join('');
   }
@@ -291,7 +219,97 @@ const CHATBOT_CONFIG = {
       t.textContent = wm.text;
       layer.appendChild(t);
     }
-    elBody.appendChild(layer);   // <-- onder de berichten dankzij CSS z-index
+    elBody.appendChild(layer);
+  }
+
+  /* ---------- Resize (linksboven) ---------- */
+  function initResize(){
+    const grip = document.createElement('div');
+    grip.className = 'cb-resize';
+    elWin.appendChild(grip);
+
+    const cfg = CHATBOT_CONFIG.resize || {};
+    const key = (k)=> `${cfg.storageKey || 'cb_size'}_${k}`;
+
+    if (cfg.remember) {
+      const w = +localStorage.getItem(key('w'));
+      const h = +localStorage.getItem(key('h'));
+      if (w > 0 && h > 0) {
+        elWin.style.width = `${w}px`;
+        elWin.style.height = `${h}px`;
+      }
+    }
+
+    const getBounds = ()=>{
+      const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+      const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
+      const maxW = Math.min(vw * (cfg.maxWvw||90)/100, 760);
+      const maxH = Math.min(vh * (cfg.maxHvh||85)/100, 900);
+      const minW = cfg.minW || 300;
+      const minH = cfg.minH || 360;
+      return {vw, vh, maxW, maxH, minW, minH};
+    };
+
+    let startW=0, startH=0, startX=0, startY=0, resizing=false;
+
+    const onDown = (x,y)=>{
+      const r = elWin.getBoundingClientRect();
+      startW = r.width; startH = r.height; startX = x; startY = y;
+      resizing = true;
+      document.body.style.cursor = 'nw-resize';
+      document.body.style.userSelect = 'none';
+    };
+    const onMove = (x,y)=>{
+      if (!resizing) return;
+      const {maxW,maxH,minW,minH} = getBounds();
+      let deltaX = x - startX;
+      let deltaY = y - startY;
+      let newW = Math.min(Math.max(startW - deltaX, minW), maxW);
+      let newH = Math.min(Math.max(startH - deltaY, minH), maxH);
+      elWin.style.width = `${Math.round(newW)}px`;
+      elWin.style.height = `${Math.round(newH)}px`;
+    };
+    const onUp = ()=>{
+      if (!resizing) return;
+      resizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (cfg.remember) {
+        const r = elWin.getBoundingClientRect();
+        localStorage.setItem(key('w'), String(Math.round(r.width)));
+        localStorage.setItem(key('h'), String(Math.round(r.height)));
+      }
+    };
+
+    grip.addEventListener('mousedown', e=>{
+      e.preventDefault(); e.stopPropagation();
+      onDown(e.clientX, e.clientY);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp, { once:true });
+    });
+    const onMouseMove = (e)=> onMove(e.clientX, e.clientY);
+    const onMouseUp   = ()=> { onUp(); window.removeEventListener('mousemove', onMouseMove); };
+
+    grip.addEventListener('touchstart', e=>{
+      const t = e.touches[0]; if (!t) return;
+      e.preventDefault(); e.stopPropagation();
+      onDown(t.clientX, t.clientY);
+    }, {passive:false});
+    window.addEventListener('touchmove', e=>{
+      if (!resizing) return;
+      const t = e.touches[0]; if (!t) return;
+      onMove(t.clientX, t.clientY);
+    }, {passive:false});
+    window.addEventListener('touchend', onUp);
+
+    grip.addEventListener('dblclick', ()=>{
+      elWin.style.width  = '';
+      elWin.style.height = '';
+      if (cfg.remember) {
+        localStorage.removeItem(key('w'));
+        localStorage.removeItem(key('h'));
+      }
+    });
   }
 
   /* ---------- init visuals ---------- */
@@ -299,7 +317,10 @@ const CHATBOT_CONFIG = {
   preload(CHATBOT_CONFIG.bubbleIconClosed); preload(CHATBOT_CONFIG.bubbleIconOpen);
   setAvatar(CHATBOT_CONFIG.agentAvatar);
   if (CHATBOT_CONFIG.title) qs('#cbTitle').textContent = CHATBOT_CONFIG.title;
+
+  // Watermark + Resize init
   initWatermark();
+  initResize();
 
   /* ---------- session ---------- */
   const SESSION_KEY = 'cb_session_id';
@@ -310,6 +331,13 @@ const CHATBOT_CONFIG = {
   }
 
   /* ---------- events ---------- */
+  function setOpen(open){
+    elWin.classList[open ? 'add' : 'remove']('cb-open');
+    elToggle.classList[open ? 'add' : 'remove']('is-open');
+    elToggle.setAttribute('aria-expanded', String(open));
+    if (open) setTimeout(()=> elInput.focus(), 50);
+  }
+
   elToggle.addEventListener('click', ()=> setOpen(!elWin.classList.contains('cb-open')));
   elClose.addEventListener('click', ()=> setOpen(false));
   elClose.addEventListener('keydown', (e)=> { if (e.key==='Enter'||e.key===' ') setOpen(false); });
